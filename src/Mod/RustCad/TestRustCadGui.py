@@ -6,8 +6,8 @@ import json
 import math
 import os
 from pathlib import Path
-import subprocess
 import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -34,7 +34,9 @@ class RustCadGui(unittest.TestCase):
             root = Path(packaged_root).resolve()
             import Part
 
-            for module in (App, Part, engine):
+            self.assertTrue(Path("/proc/self/exe").resolve().is_relative_to(root))
+            self.assertTrue(Path(App.getHomePath()).resolve().is_relative_to(root))
+            for module in (Part, engine):
                 self.assertTrue(Path(module.__file__).resolve().is_relative_to(root))
             self.assertTrue(engine.ENGINE.resolve().is_relative_to(root))
             self.assertIsNone(shutil.which("cargo"))
