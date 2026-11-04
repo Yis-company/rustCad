@@ -80,4 +80,5 @@ if __name__ == "__main__":
     parser.add_argument("evidence", type=Path)
     parser.add_argument("--validator-python", type=Path, required=True)
     args = parser.parse_args()
-    verify(args.folder.resolve(), args.evidence.resolve(), args.validator_python.resolve())
+    # Resolving a venv's Python symlink bypasses its adjacent pyvenv.cfg and installed OCP.
+    verify(args.folder.resolve(), args.evidence.resolve(), args.validator_python.absolute())
