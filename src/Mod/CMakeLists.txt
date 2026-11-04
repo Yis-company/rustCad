@@ -58,6 +58,10 @@ if(BUILD_PART)
   add_subdirectory(Part)
 endif(BUILD_PART)
 
+if(BUILD_RUSTCAD)
+  add_subdirectory(RustCad)
+endif()
+
 if(BUILD_PART_DESIGN)
   add_subdirectory(PartDesign)
 endif(BUILD_PART_DESIGN)
