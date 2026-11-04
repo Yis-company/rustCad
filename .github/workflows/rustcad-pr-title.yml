@@ -1,0 +1,23 @@
+name: RustCad PR title
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited]
+
+permissions: {}
+
+jobs:
+  title:
+    name: Conventional PR title
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require a Conventional Commit PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          python3 - <<'PY'
+          import os, re
+          assert re.fullmatch(r"(?:feat|fix|docs|chore|refactor|test|ci|build|perf|revert|style)(?:\([^\r\n)]+\))?!?: [^\r\n]+", os.environ["PR_TITLE"]), "Use a Conventional Commit PR title"
+          PY

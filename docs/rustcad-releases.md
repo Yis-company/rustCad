@@ -37,7 +37,7 @@ Unrelated installed Apps are not reused. There is no fallback to a personal toke
 or the default token when the release App is missing.
 
 Enable Actions to create PRs. Once the implementation workflow has run, require
-the **RustCad required** check on main and require PRs before merging, with zero
+the **RustCad required** and **Conventional PR title** checks on main and require PRs before merging, with zero
 additional reviewer approvals, no force pushes or deletion. Protect `rustcad-v*`
 tags against updates/deletion without a normal automation bypass. Verify the
 actual check name and settings through the API before calling this enforced.
@@ -49,6 +49,10 @@ Every main-targeting PR runs the release policy tests, Rust corpus and native
 regressions, plus the Linux GUI build and package checks. The required aggregate
 fails on failed, cancelled or unexpectedly skipped jobs; there are no path filters.
 Existing FreeCAD CI remains enabled.
+Title validation also runs on metadata edits in a separate cheap workflow, so
+editing a PR description cannot restart or cancel an application build. Dependency
+Graph must be enabled for the inherited dependency-review check; Dependabot alerts
+enable that graph without enabling automatic dependency updates.
 
 The reusable Linux path runs on standard `ubuntu-24.04` runners. It builds with
 locked Pixi dependencies, the pinned Rust toolchain and `BUILD_RUSTCAD=ON`.
