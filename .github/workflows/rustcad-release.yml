@@ -1,0 +1,102 @@
+name: RustCad release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      draft_tag:
+        description: Existing unpublished rustcad-v0.x.y-alpha.N tag to retry
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rustcad-release
+  cancel-in-progress: false
+
+jobs:
+  select:
+    if: github.repository == 'Yis-company/rustCad'
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.identity.outputs.sha }}
+      tag: ${{ steps.identity.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Require the dedicated release App
+        if: github.event_name == 'push'
+        env:
+          APP_ID: ${{ vars.RUSTCAD_RELEASE_APP_ID }}
+          APP_KEY: ${{ secrets.RUSTCAD_RELEASE_APP_PRIVATE_KEY }}
+        run: |
+          if [ -z "$APP_ID" ] || [ -z "$APP_KEY" ]; then
+            echo 'Configure the rustCad-only GitHub App documented in docs/rustcad-releases.md.' >&2
+            exit 1
+          fi
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        if: github.event_name == 'push'
+        id: app
+        with:
+          app-id: ${{ vars.RUSTCAD_RELEASE_APP_ID }}
+          private-key: ${{ secrets.RUSTCAD_RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: rustCad
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
+        if: github.event_name == 'push'
+        id: release
+        with:
+          token: ${{ steps.app.outputs.token }}
+      - name: Select the exact source commit
+        id: identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_TAG: ${{ inputs.draft_tag }}
+          RELEASE_CREATED: ${{ steps.release.outputs.release_created }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag_name }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            python3 .github/scripts/rustcad_release.py select --tag "$REQUESTED_TAG"
+          elif [ "$RELEASE_CREATED" = true ]; then
+            python3 .github/scripts/rustcad_release.py select --tag "$RELEASE_TAG" --sha "$RELEASE_SHA"
+          else
+            printf 'sha=%s\ntag=\n' "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          fi
+
+  verify:
+    needs: select
+    uses: ./.github/workflows/rust-geometry-kernel.yml
+    with:
+      source_sha: ${{ needs.select.outputs.sha }}
+      version_tag: ${{ needs.select.outputs.tag }}
+
+  publish:
+    if: always() && needs.select.result == 'success' && needs.verify.result == 'success' && needs.select.outputs.tag != ''
+    needs: [select, verify]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: ${{ needs.verify.outputs.artifact_name }}
+          path: build/tested-package
+      - name: Publish only the exact tested alpha package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_GATES: ${{ toJSON(needs) }}
+          RELEASE_TAG: ${{ needs.select.outputs.tag }}
+          RELEASE_SHA: ${{ needs.select.outputs.sha }}
+        run: python3 .github/scripts/rustcad_release.py publish --tag "$RELEASE_TAG" --sha "$RELEASE_SHA" --folder build/tested-package

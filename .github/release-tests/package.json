@@ -1,0 +1,6 @@
+{
+  "name": "rustcad-release-policy-tests",
+  "private": true,
+  "scripts": {"test": "node policy.test.cjs"},
+  "devDependencies": {"release-please": "17.3.0"}
+}

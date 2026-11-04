@@ -7,6 +7,7 @@ import math
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -28,6 +29,20 @@ class RustCadGui(unittest.TestCase):
         Gui.getMainWindow().show()
         Gui.updateGui()
         self.assertTrue(App.GuiUp and Gui.getMainWindow().isVisible())
+        packaged_root = os.environ.get("RUSTCAD_PACKAGE_ROOT")
+        if packaged_root:
+            root = Path(packaged_root).resolve()
+            import Part
+
+            for module in (App, Part, engine):
+                self.assertTrue(Path(module.__file__).resolve().is_relative_to(root))
+            self.assertTrue(engine.ENGINE.resolve().is_relative_to(root))
+            self.assertIsNone(shutil.which("cargo"))
+            self.assertIsNone(shutil.which("rustup"))
+            # Verify the exercised runtime loads no libraries from a build/Pixi environment.
+            maps = Path("/proc/self/maps").read_text()
+            self.assertNotIn("/.pixi/", maps)
+            self.assertNotIn("/build/release/", maps)
         folder = os.environ.get("RUSTCAD_GUI_OUTPUT")
         self.output = Path(folder if folder else tempfile.mkdtemp(prefix="rustcad-gui-"))
         self.output.mkdir(parents=True, exist_ok=True)

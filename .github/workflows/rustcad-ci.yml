@@ -1,0 +1,61 @@
+name: RustCad CI
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rustcad-pr-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  policy:
+    name: Release policy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Require a Conventional Commit PR title
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          python3 - <<'PY'
+          import os, re
+          assert re.fullmatch(r"(?:feat|fix|docs|chore|refactor|test|ci|build|perf|revert|style)(?:\([^\r\n)]+\))?!?: [^\r\n]+", os.environ["PR_TITLE"]), "Use a Conventional Commit PR title"
+          PY
+      - name: Verify release numbering and guarded publication
+        run: |
+          npm ci --prefix .github/release-tests --ignore-scripts --no-audit --no-fund
+          npm test --prefix .github/release-tests
+          python3 -m unittest discover -s .github/scripts -p 'test_rustcad_*.py' -v
+      - name: Validate workflow syntax
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/rustcad-ci.yml .github/workflows/rustcad-release.yml .github/workflows/rust-geometry-kernel.yml
+
+  verify:
+    name: Verify
+    uses: ./.github/workflows/rust-geometry-kernel.yml
+    with:
+      source_sha: ${{ github.sha }}
+
+  required:
+    name: RustCad required
+    if: always()
+    needs: [policy, verify]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require policy and Linux verification
+        env:
+          JOBS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          jobs = json.loads(os.environ["JOBS"])
+          assert jobs and all(job["result"] == "success" for job in jobs.values()), jobs
+          PY

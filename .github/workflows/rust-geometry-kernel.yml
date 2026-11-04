@@ -1,32 +1,27 @@
-name: Rust geometry kernel
+name: RustCad Linux verification
 
 on:
-  pull_request:
-    paths:
-      - "rust/geometry-kernel/**"
-      - ".github/workflows/rust-geometry-kernel.yml"
-      - "src/Mod/RustCad/**"
-      - "src/Mod/CMakeLists.txt"
-      - "cMake/FreeCAD_Helpers/InitializeFreeCADBuildOptions.cmake"
-      - ".github/scripts/run_rustcad_gui_tests.py"
-  push:
-    branches: [main]
-    paths:
-      - "rust/geometry-kernel/**"
-      - ".github/workflows/rust-geometry-kernel.yml"
-      - "src/Mod/RustCad/**"
-      - "src/Mod/CMakeLists.txt"
-      - "cMake/FreeCAD_Helpers/InitializeFreeCADBuildOptions.cmake"
-      - ".github/scripts/run_rustcad_gui_tests.py"
-  workflow_dispatch:
+  workflow_call:
     inputs:
-      gui:
-        description: Build and test the opt-in FreeCAD Rust GUI on Linux
-        type: boolean
-        default: false
+      source_sha:
+        type: string
+        required: true
+      version_tag:
+        type: string
+        default: ""
+    outputs:
+      artifact_name:
+        description: The tested Linux package and release evidence
+        value: ${{ jobs.package_test.outputs.artifact_name }}
 
 permissions:
   contents: read
+
+env:
+  CARGO_BUILD_JOBS: "2"
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
 
 jobs:
   kernel:
@@ -40,6 +35,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # existing repository pin
         with:
           persist-credentials: false
+          ref: ${{ inputs.source_sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # existing repository pin
         with:
           python-version: "3.11"
@@ -61,7 +57,7 @@ jobs:
       - name: Install independent OCCT validator
         run: python -m pip install -r requirements-validator.txt black==26.5.1
       - name: Check Python formatting
-        run: python -m black --check --line-length 100 run_corpus.py validate_step.py test_validator.py validate_features.py test_features.py validate_gui.py ../../src/Mod/RustCad ../../.github/scripts/run_rustcad_gui_tests.py
+        run: python -m black --check --line-length 100 run_corpus.py validate_step.py test_validator.py validate_features.py test_features.py validate_gui.py ../../src/Mod/RustCad ../../.github/scripts/run_rustcad_gui_tests.py ../../.github/scripts/package_rustcad_linux.py ../../.github/scripts/verify_rustcad_package.py ../../.github/scripts/run_rustcad_stage.py ../../.github/scripts/rustcad_release.py ../../.github/scripts/test_rustcad_release.py ../../.github/scripts/test_rustcad_packaging.py
       - name: Prove raw-import controls
         run: python -m unittest -v test_validator test_features 2>&1 | tee artifacts/checks/validator-controls.log
       - name: Run fixed corpus and raw STEP comparison
@@ -89,54 +85,133 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # existing repository pin
         with:
           name: rust-geometry-kernel-evidence
+          retention-days: 7
           path: rust/geometry-kernel/artifacts/
           if-no-files-found: error
 
   gui:
-    if: github.event_name == 'workflow_dispatch' && inputs.gui
+    name: Build Linux package
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    env:
+      CCACHE_DISABLE: "1"
+      PIXI_CACHE_DIR: ${{ github.workspace }}/build/pixi-cache
+      RUSTCAD_TAG: ${{ inputs.version_tag }}
+      EXPECTED_SHA: ${{ inputs.source_sha }}
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: ${{ inputs.source_sha }}
           persist-credentials: false
           submodules: recursive
+      - name: Require the exact requested commit
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
         with:
           pixi-version: v0.82.1
+          cache: false
           locked: true
       - name: Install the pinned Rust build toolchain
-        working-directory: rust/geometry-kernel
         run: |
-          rustcad_toolchain=$(pixi run --locked python -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')
-          rustup toolchain install "$rustcad_toolchain" --profile minimal --component rustfmt --component clippy
+          rustcad_toolchain=$(python3 -c 'import tomllib; print(tomllib.load(open("rust/geometry-kernel/rust-toolchain.toml", "rb"))["toolchain"]["channel"])')
+          rustup toolchain install "$rustcad_toolchain" --profile minimal
       - name: Configure and build the real GUI
+        env:
+          CFLAGS: ""
+          CXXFLAGS: ""
+          DEBUG_CFLAGS: ""
+          DEBUG_CXXFLAGS: ""
         run: |
-          mkdir -p build/evidence
-          CFLAGS='' CXXFLAGS='' DEBUG_CFLAGS='' DEBUG_CXXFLAGS='' pixi run --locked cmake --preset conda-linux-release -DBUILD_RUSTCAD=ON -DFREECAD_PARALLEL_COMPILE_JOBS:STRING=2 -DFREECAD_PARALLEL_LINK_JOBS:STRING=1 > build/evidence/configure.log 2>&1
-          pixi run --locked cmake --build build/release --parallel 2 > build/evidence/build.log 2>&1
-          ldd build/release/Mod/RustCad/rustcad-engine > build/evidence/engine-links.txt
-          if grep -Ei 'lib(TK[A-Z]|occt|OpenCASCADE)' build/evidence/engine-links.txt; then
-            exit 1
-          fi
-      - name: Require registered and executed GUI lifecycle tests
-        run: pixi run --locked xvfb-run -a -s "-screen 0 1280x960x24 +extension GLX" python .github/scripts/run_rustcad_gui_tests.py build/release/bin/FreeCAD build/evidence/gui > build/evidence/gui-run.json
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+          python3 .github/scripts/run_rustcad_stage.py configure pixi run --locked cmake --preset conda-linux-release -DBUILD_RUSTCAD=ON -DRELATIVE_RPATH=ON -DFREECAD_PARALLEL_COMPILE_JOBS:STRING=2 -DFREECAD_PARALLEL_LINK_JOBS:STRING=1
+          python3 .github/scripts/run_rustcad_stage.py build pixi run --locked cmake --build build/release --parallel 2
+      - name: Download fixed AppImage tools
+        run: |
+          mkdir -p build/release-tools
+          curl --fail --location --retry 3 https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage --output build/release-tools/appimagetool.AppImage
+          curl --fail --location --retry 3 https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64 --output build/release-tools/runtime-x86_64
+          chmod u+x build/release-tools/appimagetool.AppImage
+      - name: Assemble the installed app in disposable staging
+        run: |
+          python3 .github/scripts/run_rustcad_stage.py package pixi run --locked python .github/scripts/package_rustcad_linux.py --prefix .pixi/envs/default --build build/release --output build/linux-package --tool build/release-tools/appimagetool.AppImage --runtime build/release-tools/runtime-x86_64 --tag "$RUSTCAD_TAG"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          python-version: "3.11"
-      - name: Independently validate the GUI-produced STEP
-        run: |
-          python -m venv build/reference-validator
-          build/reference-validator/bin/python -m pip install -r rust/geometry-kernel/requirements-validator.txt
-          rustcad_gui_folder=$(python -c 'import json; print(json.load(open("build/evidence/gui-run.json"))["artifacts"])')
-          build/reference-validator/bin/python rust/geometry-kernel/validate_gui.py "$rustcad_gui_folder" --output build/evidence/gui-step-validation.json
-      - name: Retain GUI evidence, including failures
+          name: rustcad-linux-build
+          path: build/linux-package/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+      - name: Retain build evidence, including failures
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: rustcad-gui-evidence
+          name: rustcad-linux-build-evidence
           path: build/evidence/
           if-no-files-found: error
+          retention-days: 7
+
+  package_test:
+    name: Verify installed Linux package
+    needs: gui
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      artifact_name: rustcad-tested-linux
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: rustcad-linux-build
+          path: build/linux-package
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.11"
+      - name: Install display and independent reference prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y xvfb xauth libegl1 libgl1 libopengl0 libxkbcommon-x11-0 libxcb-cursor0
+          python -m venv build/reference-validator
+          build/reference-validator/bin/python -m pip install -r rust/geometry-kernel/requirements-validator.txt
+      - name: Test the package with no Pixi or source build on this runner
+        run: |
+          chmod u+x build/linux-package/*.AppImage
+          python .github/scripts/run_rustcad_stage.py packaged-tests xvfb-run -a -s "-screen 0 1280x960x24 +extension GLX" python .github/scripts/verify_rustcad_package.py build/linux-package build/evidence/package --validator-python build/reference-validator/bin/python
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: rustcad-tested-linux
+          path: build/linux-package/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+      - name: Retain package evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: rustcad-package-test-evidence
+          path: build/evidence/
+          if-no-files-found: error
+          retention-days: 7
+
+  required:
+    name: Linux verification
+    if: always()
+    needs: [kernel, gui, package_test]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every job to succeed
+        env:
+          JOBS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          jobs = json.loads(os.environ["JOBS"])
+          assert jobs and all(job["result"] == "success" for job in jobs.values()), jobs
+          PY
