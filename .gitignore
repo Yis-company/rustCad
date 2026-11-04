@@ -11,6 +11,7 @@
 !/.gitmodules
 !/.packit.yaml
 !/.pre-commit-config.yaml
+!/.release-please-manifest.json
 !/.pylintrc
 !/contrib/.vscode/
 *.clangd

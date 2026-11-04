@@ -1,0 +1,4 @@
+/target/
+/artifacts/
+/.venv/
+__pycache__/
