@@ -1,0 +1,22 @@
+{
+  "units": "mm",
+  "modeling_tolerance_mm": 1e-06,
+  "linear_measurement_absolute_mm": 2e-06,
+  "volume_relative_error": 1e-07,
+  "volume_absolute_mm3_at_scale_1": 1e-08,
+  "scales": [
+    0.01,
+    1,
+    100
+  ],
+  "tessellation_chord_mm_at_scale_1": 0.001,
+  "mesh_volume_relative_error": 0.001,
+  "gaps_in_modeling_tolerances": [
+    0,
+    0.1,
+    1,
+    10
+  ],
+  "per_case_timeout_seconds": 60,
+  "note": "Frozen before first candidate execution. Modeling tolerance for ogeom uses with_scale(0.1); all coordinates and STEP remain mm. Native confusion 1e-7 and internal weld thresholds must be reported separately."
+}
