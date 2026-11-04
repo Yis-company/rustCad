@@ -27,6 +27,7 @@ packages=(
   libexpat1-dev
   libgtest-dev
   libgmock-dev
+  libharfbuzz-dev
   libkdtree++-dev
   libmedc-dev
   libocct-data-exchange-dev
