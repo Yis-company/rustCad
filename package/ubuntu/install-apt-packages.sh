@@ -37,6 +37,7 @@ packages=(
   libproj-dev
   libpcl-dev
   libpyside6-dev
+  libshiboken6-dev
   qt6-svg-dev
   libspnav-dev
   libvtk9-dev
