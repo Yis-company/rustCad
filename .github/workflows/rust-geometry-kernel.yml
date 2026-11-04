@@ -158,7 +158,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
-      artifact_name: rustcad-tested-linux
+      artifact_name: rustcad-linux-build
     defaults:
       run:
         shell: bash
@@ -186,10 +186,9 @@ jobs:
           python .github/scripts/run_rustcad_stage.py packaged-tests xvfb-run -a -s "-screen 0 1280x960x24 +extension GLX" python .github/scripts/verify_rustcad_package.py build/linux-package build/evidence/package --validator-python build/reference-validator/bin/python
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: rustcad-tested-linux
-          path: build/linux-package/
+          name: rustcad-package-proof
+          path: build/linux-package/rustcad-evidence.json
           if-no-files-found: error
-          compression-level: 0
           retention-days: 1
       - name: Retain package evidence, including failures
         if: always()

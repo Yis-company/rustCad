@@ -93,6 +93,10 @@ jobs:
         with:
           name: ${{ needs.verify.outputs.artifact_name }}
           path: build/tested-package
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: rustcad-package-proof
+          path: build/tested-package
       - name: Publish only the exact tested alpha package
         env:
           GH_TOKEN: ${{ github.token }}
